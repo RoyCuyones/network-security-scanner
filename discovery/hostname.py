@@ -170,7 +170,7 @@ def resolve_smb_name(ip_address):
 
 def clean_device_name(name):
     """
-    Normalize names before displaying them.
+    Normalize and reject unusable device names.
     """
 
     if not name:
@@ -184,8 +184,17 @@ def clean_device_name(name):
     if not name:
         return None
 
-    return name
+    invalid_names = {
+        "localhost",
+        "localhost.localdomain",
+        "unknown",
+        "none"
+    }
 
+    if name.lower() in invalid_names:
+        return None
+
+    return name
 
 def collect_hostname_candidates(ip_address):
     """

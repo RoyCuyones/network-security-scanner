@@ -198,8 +198,8 @@ def discover_hosts(
                 "Unknown"
             )
 
-        # Then use ARP information as another
-        # source when Nmap did not provide it.
+        # Then try ARP information when Nmap
+        # did not provide a MAC/vendor.
         arp_info = arp_devices.get(
             ip_address
         )
@@ -207,33 +207,70 @@ def discover_hosts(
         if arp_info:
 
             if mac == "Unknown":
-
                 mac = arp_info.get(
                     "mac",
                     "Unknown"
                 )
 
             if vendor == "Unknown":
-
                 vendor = arp_info.get(
                     "vendor",
                     "Unknown"
                 )
 
         # -----------------------------------------
+        # DHCP CLIENT MATCHING
+        # -----------------------------------------
+
+        router_client = None
+
+        # First try matching the existing MAC
+        # against the router DHCP table.
+        normalized_mac = normalize_mac_address(
+            mac
+        )
+
+        if normalized_mac:
+            router_client = (
+                router_clients_by_mac.get(
+                    normalized_mac
+                )
+            )
+
+        # If no MAC match is available, fall
+        # back to matching by IP address.
+        if router_client is None:
+            router_client = (
+                router_clients_by_ip.get(
+                    ip_address
+                )
+            )
+
+        # If Nmap and ARP could not provide a
+        # MAC address, use the MAC recorded by
+        # the router DHCP client table.
+        if (
+            mac == "Unknown"
+            and router_client
+        ):
+
+            router_mac = router_client.get(
+                "mac"
+            )
+
+            if router_mac:
+                mac = router_mac.upper()
+
+        # -----------------------------------------
         # MAC TYPE
         # -----------------------------------------
 
+        # Determine MAC type only AFTER all
+        # available MAC sources have been tried.
         mac_type = get_mac_type(
             mac
         )
 
-        # Clean arp-scan messages such as:
-        #
-        # Unknown: locally administered
-        #
-        # into something easier for the
-        # final report.
         vendor = normalize_vendor(
             vendor,
             mac_type
@@ -247,31 +284,10 @@ def discover_hosts(
             ip_address
         )
 
-        router_client = None
-
-        # First try matching by MAC address.
-        normalized_mac = normalize_mac_address(
-            mac
-        )
-
-        if normalized_mac:
-            router_client = (
-                router_clients_by_mac.get(
-                    normalized_mac
-                )
-            )
-
-        # If MAC is unavailable or no MAC match
-        # was found, try matching by IP address.
-        if router_client is None:
-            router_client = (
-                router_clients_by_ip.get(
-                    ip_address
-                )
-            )
-
-        # Use the router hostname when available.
+        # Prefer the hostname from the router
+        # DHCP table when one is available.
         if router_client:
+
             router_hostname = (
                 router_client.get(
                     "hostname"
@@ -279,13 +295,13 @@ def discover_hosts(
             )
 
             if router_hostname:
+
                 router_hostname = (
                     router_hostname.strip()
                 )
 
                 if router_hostname:
                     hostname = router_hostname
-
         # Fall back to SSDP if no hostname
         # could be resolved.
         if (
