@@ -209,52 +209,74 @@ def scan_specific_device(network):
 
 def scan_all_devices(network):
     """
-    Discover all live devices and scan each one.
+    Discover all live devices, scan each one,
+    and display results only for devices that
+    have open ports in the top 100 TCP ports.
     """
 
-    hosts = discover_network_devices(network)
+    hosts = discover_network_devices(
+        network
+    )
 
     if not hosts:
         return
 
-    for index, host in enumerate(hosts, start=1):
+    console.print(
+        f"\n[bold]{len(hosts)} live device(s) "
+        "available for scanning.[/bold]"
+    )
 
-        if host["ip"] == network["gateway"]:
+    console.print(
+        "\n[bold]Scanning all devices...[/bold]"
+    )
 
-            hostname = host.get(
-                "hostname",
-                "Unknown"
-            )
+    results_with_open_ports = []
 
-            if hostname != "Unknown":
-                display_target = (
-                    f'{hostname} ({host["ip"]})'
-                )
-            else:
-                display_target = (
-                    f'Default Gateway ({host["ip"]})'
-                )
-
-        else:
-            display_target = host["ip"]
-
-        console.print(
-            f'\n[bold]Scanning device {index}/{len(hosts)}: '
-            f'{display_target}[/bold]'
-        )
+    for host in hosts:
 
         ports = scan_host(
             host["ip"]
         )
 
+        if not ports:
+            continue
+
         analyzed_ports = analyze_ports(
             ports
         )
+
+        results_with_open_ports.append(
+            {
+                "host": host,
+                "analyzed_ports": analyzed_ports
+            }
+        )
+
+    console.print(
+        f"\n[bold]{len(results_with_open_ports)} "
+        "device(s) with open ports found.[/bold]"
+    )
+
+    if not results_with_open_ports:
+        console.print(
+            "[green]No open ports were found "
+            "on any discovered device.[/green]"
+        )
+        return
+
+    for result in results_with_open_ports:
+
+        host = result["host"]
+
+        analyzed_ports = result[
+            "analyzed_ports"
+        ]
 
         show_scan_result(
             host,
             analyzed_ports
         )
+
 
 def show_menu():
     """
