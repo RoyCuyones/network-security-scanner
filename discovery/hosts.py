@@ -12,8 +12,64 @@ from enrichment.mac_info import (
     normalize_vendor
 )
 
+from router.huawei_hg8145v5 import get_huawei_clients
 
-def discover_hosts(subnet, interface=None):
+
+def normalize_mac_address(mac):
+    """
+    Convert MAC addresses into one consistent format.
+
+    Examples:
+        AA:BB:CC:DD:EE:FF
+        aa-bb-cc-dd-ee-ff
+
+    become:
+
+        aa:bb:cc:dd:ee:ff
+    """
+
+    if not mac or mac == "Unknown":
+        return None
+
+    return mac.strip().replace("-", ":").lower()
+
+
+def build_router_client_lookup(clients):
+    """
+    Build a MAC-address lookup table from the Huawei
+    DHCP/client table.
+
+    Example:
+
+        {
+            "9a:9d:08:34:7e:03": {
+                "hostname": "POCO-X3-GT",
+                "ip": "192.168.254.145",
+                "mac": "9a:9d:08:34:7e:03"
+            }
+        }
+
+    MAC address is used instead of IP because DHCP
+    addresses can change.
+    """
+
+    lookup = {}
+
+    for client in clients:
+
+        mac = normalize_mac_address(
+            client.get("mac")
+        )
+
+        if not mac:
+            continue
+
+        lookup[mac] = client
+
+    return lookup
+
+
+def discover_hosts(subnet, interface=None, router_ip=None):
     """
     Discover live devices on the local subnet.
 
@@ -26,11 +82,24 @@ def discover_hosts(subnet, interface=None):
         MAC Type
         Vendor
         Status
+
+    Device names may be enriched using:
+        Huawei DHCP/client table
+        Hostname resolver
+        SSDP/UPnP
     """
 
-    # Discover SSDP/UPnP information once
-    # for the whole local network.
+    # -----------------------------------------
+    # SSDP DISCOVERY
+    # -----------------------------------------
+
+    # Run SSDP discovery once for the entire
+    # local network instead of once per device.
     ssdp_devices = discover_ssdp_devices()
+
+    # -----------------------------------------
+    # ARP DISCOVERY
+    # -----------------------------------------
 
     # Discover local IP/MAC/vendor information
     # using ARP.
@@ -38,7 +107,64 @@ def discover_hosts(subnet, interface=None):
         interface
     )
 
-    # Nmap host discovery.
+    # -----------------------------------------
+    # HUAWEI DHCP CLIENT TABLE
+    # -----------------------------------------
+
+    # Try to retrieve hostname/IP/MAC information
+    # from the Huawei router.
+    #
+    # Router integration is enrichment only.
+    # Discovery must still work if the router
+    # endpoint cannot be reached.
+
+
+    try:
+        router_clients = get_huawei_clients(
+            router_ip
+        )
+
+        router_clients_by_mac = (
+            build_router_client_lookup(
+                router_clients
+            )
+        )
+
+        router_clients_by_ip = {
+            client["ip"]: client
+            for client in router_clients
+            if client.get("ip")
+        }
+
+    except Exception:
+    router_clients_by_mac = {}
+    router_clients_by_ip = {}
+
+    if router_ip:
+        try:
+            router_clients = get_huawei_clients(
+                router_ip
+            )
+
+            router_clients_by_mac = (
+                build_router_client_lookup(
+                    router_clients
+                )
+            )
+
+            router_clients_by_ip = {
+                client["ip"]: client
+                for client in router_clients
+                if client.get("ip")
+            }
+
+        except Exception:
+            pass
+
+    # -----------------------------------------
+    # NMAP HOST DISCOVERY
+    # -----------------------------------------
+
     result = subprocess.run(
         [
             "nmap",
@@ -58,6 +184,10 @@ def discover_hosts(subnet, interface=None):
 
     live_hosts = []
 
+    # -----------------------------------------
+    # PROCESS DISCOVERED HOSTS
+    # -----------------------------------------
+
     for host in root.findall("host"):
 
         status = host.find("status")
@@ -67,6 +197,10 @@ def discover_hosts(subnet, interface=None):
 
         if status.get("state") != "up":
             continue
+
+        # -----------------------------------------
+        # IP ADDRESS
+        # -----------------------------------------
 
         ipv4_address = host.find(
             "address[@addrtype='ipv4']"
@@ -80,12 +214,8 @@ def discover_hosts(subnet, interface=None):
         )
 
         # -----------------------------------------
-        # DEVICE NAME
+        # SSDP INFORMATION
         # -----------------------------------------
-
-        hostname = resolve_hostname(
-            ip_address
-        )
 
         ssdp_info = ssdp_devices.get(
             ip_address,
@@ -95,14 +225,6 @@ def discover_hosts(subnet, interface=None):
         ssdp_name = ssdp_info.get(
             "friendly_name"
         )
-
-        # Use SSDP friendly name only when
-        # our normal hostname resolver failed.
-        if (
-            hostname == "Unknown"
-            and ssdp_name
-        ):
-            hostname = ssdp_name
 
         # -----------------------------------------
         # MAC ADDRESS + VENDOR
@@ -128,7 +250,8 @@ def discover_hosts(subnet, interface=None):
                 "Unknown"
             )
 
-        # Then use ARP information as another source.
+        # Then use ARP information as another
+        # source when Nmap did not provide it.
         arp_info = arp_devices.get(
             ip_address
         )
@@ -136,12 +259,14 @@ def discover_hosts(subnet, interface=None):
         if arp_info:
 
             if mac == "Unknown":
+
                 mac = arp_info.get(
                     "mac",
                     "Unknown"
                 )
 
             if vendor == "Unknown":
+
                 vendor = arp_info.get(
                     "vendor",
                     "Unknown"
@@ -159,11 +284,67 @@ def discover_hosts(subnet, interface=None):
         #
         # Unknown: locally administered
         #
-        # into something easier for the final report.
+        # into something easier for the
+        # final report.
         vendor = normalize_vendor(
             vendor,
             mac_type
         )
+
+        # -----------------------------------------
+        # DEVICE NAME
+        # -----------------------------------------
+
+        hostname = resolve_hostname(
+            ip_address
+        )
+
+        router_client = None
+
+        # First try matching by MAC address.
+        normalized_mac = normalize_mac_address(
+            mac
+        )
+
+        if normalized_mac:
+            router_client = (
+                router_clients_by_mac.get(
+                    normalized_mac
+                )
+            )
+
+        # If MAC is unavailable or no MAC match
+        # was found, try matching by IP address.
+        if router_client is None:
+            router_client = (
+                router_clients_by_ip.get(
+                    ip_address
+                )
+            )
+
+        # Use the router hostname when available.
+        if router_client:
+            router_hostname = (
+                router_client.get(
+                    "hostname"
+                )
+            )
+
+            if router_hostname:
+                router_hostname = (
+                    router_hostname.strip()
+                )
+
+                if router_hostname:
+                    hostname = router_hostname
+
+        # Fall back to SSDP if no hostname
+        # could be resolved.
+        if (
+            hostname == "Unknown"
+            and ssdp_name
+        ):
+            hostname = ssdp_name
 
         # -----------------------------------------
         # CATEGORY + DEVICE TYPE
@@ -197,8 +378,8 @@ def discover_hosts(subnet, interface=None):
             "vendor": vendor,
             "status": "Online",
 
-        # Internal enrichment data.
-        # This is not shown in the normal output.
+            # Internal enrichment data.
+            # This is not shown in normal output.
             "_ssdp_info": ssdp_info
         })
 
@@ -217,6 +398,7 @@ if __name__ == "__main__":
     hosts = discover_hosts(
         network["subnet"],
         network["interface"]
+	network["gateway"]
     )
 
     print("\nLive hosts found:\n")
