@@ -37,10 +37,10 @@ def show_devices(hosts):
     table = Table(title="Discovered Devices")
 
     table.add_column("#")
-    table.add_column("Device Name")
     table.add_column("IP Address")
     table.add_column("MAC Address")
     table.add_column("MAC Type")
+    table.add_column("Status")
 
     for index, host in enumerate(hosts, start=1):
         table.add_row(
