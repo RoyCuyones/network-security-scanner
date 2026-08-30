@@ -221,16 +221,18 @@ def scan_specific_device(network):
             return
 
 
-def scan_all_devices(network):
+def scan_all_devices(network, host=None):
     """
     Discover all live devices, scan each one,
     and display results only for devices that
     have open ports in the top 100 TCP ports.
     """
+    
+    if hosts is None:
 
-    hosts = discover_network_devices(
-        network
-    )
+        hosts = discover_network_devices(
+            network
+        )
 
     if not hosts:
         return
