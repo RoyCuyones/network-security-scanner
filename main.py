@@ -1,3 +1,5 @@
+import ipaddress
+import subprocess
 
 from rich.console import Console
 
@@ -37,46 +39,172 @@ def discover_network_devices(network):
 
 def scan_specific_device(network):
     """
-    Discover devices, allow the user to choose one,
-    and scan its top 100 TCP ports.
+    Scan one user-supplied IPv4 address at a time.
+
+    After each scan, the user can choose whether
+    to scan another IP or return to the main menu.
     """
 
-    hosts = discover_network_devices(network)
+    while True:
 
-    if not hosts:
-        return
+        target_ip = input(
+            "\nEnter target IP address: "
+        ).strip()
 
-    show_devices(hosts)
+        # -----------------------------------------
+        # 1. VALIDATE IP ADDRESS
+        # -----------------------------------------
 
-    choice = input("\nSelect device number to scan: ").strip()
+        try:
+            ip_object = ipaddress.ip_address(
+                target_ip
+            )
 
-    try:
-        device_number = int(choice)
+        except ValueError:
+            console.print(
+                "[red]Invalid IP address.[/red]"
+            )
 
-    except ValueError:
-        console.print(
-            "[red]Invalid selection. Please enter a number.[/red]"
+            retry = input(
+                "Try another IP? [y/N]: "
+            ).strip().lower()
+
+            if retry != "y":
+                return
+
+            continue
+
+        if ip_object.version != 4:
+            console.print(
+                "[red]Only IPv4 addresses are supported.[/red]"
+            )
+
+            retry = input(
+                "Try another IP? [y/N]: "
+            ).strip().lower()
+
+            if retry != "y":
+                return
+
+            continue
+
+        # -----------------------------------------
+        # 2. CHECK CURRENT SUBNET
+        # -----------------------------------------
+
+        current_network = ipaddress.ip_network(
+            network["subnet"],
+            strict=False
         )
-        return
 
-    if device_number < 1 or device_number > len(hosts):
-        console.print("[red]Device number does not exist.[/red]")
-        return
+        if ip_object not in current_network:
+            console.print(
+                f"[yellow]{target_ip} is not inside "
+                f"the current subnet "
+                f"{network['subnet']}.[/yellow]"
+            )
 
-    selected_host = hosts[device_number - 1]
+            retry = input(
+                "Try another IP? [y/N]: "
+            ).strip().lower()
 
-    console.print(
-        f'\n[bold]Scanning {selected_host["hostname"]} '
-        f'({selected_host["ip"]})...[/bold]'
-    )
+            if retry != "y":
+                return
 
-    ports = scan_host(selected_host["ip"])
-    analyzed_ports = analyze_ports(ports)
+            continue
 
-    show_scan_result(
-        selected_host,
-        analyzed_ports
-    )
+        # -----------------------------------------
+        # 3. CHECK WHETHER HOST APPEARS ONLINE
+        # -----------------------------------------
+
+        console.print(
+            f"\nChecking {target_ip}..."
+        )
+
+        discovery = subprocess.run(
+            [
+                "nmap",
+                "-sn",
+                "-oG",
+                "-",
+                target_ip
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        host_is_up = (
+            "Status: Up"
+            in discovery.stdout
+        )
+
+        if not host_is_up:
+            console.print(
+                "[yellow]Host did not respond to "
+                "normal discovery probes.[/yellow]"
+            )
+
+            choice = input(
+                "Scan it anyway? [y/N]: "
+            ).strip().lower()
+
+            if choice != "y":
+
+                retry = input(
+                    "Try another IP? [y/N]: "
+                ).strip().lower()
+
+                if retry != "y":
+                    return
+
+                continue
+
+        # -----------------------------------------
+        # 4. BUILD HOST RECORD
+        # -----------------------------------------
+
+        host = {
+            "ip": target_ip,
+            "mac": "Unknown",
+            "mac_type": "Unknown",
+            "status": (
+                "Online"
+                if host_is_up
+                else "Unconfirmed"
+            )
+        }
+
+        # -----------------------------------------
+        # 5. SCAN TARGET
+        # -----------------------------------------
+
+        console.print(
+            f"\n[bold]Scanning {target_ip}...[/bold]"
+        )
+
+        ports = scan_host(
+            target_ip
+        )
+
+        analyzed_ports = analyze_ports(
+            ports
+        )
+
+        show_scan_result(
+            host,
+            analyzed_ports
+        )
+
+        # -----------------------------------------
+        # 6. ASK WHETHER TO SCAN AGAIN
+        # -----------------------------------------
+
+        again = input(
+            "\nScan another IP? [y/N]: "
+        ).strip().lower()
+
+        if again != "y":
+            return
 
 
 def scan_all_devices(network):
