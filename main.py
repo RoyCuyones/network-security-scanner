@@ -1,3 +1,4 @@
+
 from rich.console import Console
 
 from enrichment.device_type import refine_device_classification
@@ -70,7 +71,6 @@ def scan_specific_device(network):
     )
 
     ports = scan_host(selected_host["ip"])
-    selected_host = refine_device_classification(selected_host, ports)
     analyzed_ports = analyze_ports(ports)
 
     show_scan_result(
@@ -91,20 +91,42 @@ def scan_all_devices(network):
 
     for index, host in enumerate(hosts, start=1):
 
+        if host["ip"] == network["gateway"]:
+
+            hostname = host.get(
+                "hostname",
+                "Unknown"
+            )
+
+            if hostname != "Unknown":
+                display_target = (
+                    f'{hostname} ({host["ip"]})'
+                )
+            else:
+                display_target = (
+                    f'Default Gateway ({host["ip"]})'
+                )
+
+        else:
+            display_target = host["ip"]
+
         console.print(
             f'\n[bold]Scanning device {index}/{len(hosts)}: '
-            f'{host["hostname"]} ({host["ip"]})[/bold]'
+            f'{display_target}[/bold]'
         )
 
-        ports = scan_host(host["ip"])
+        ports = scan_host(
+            host["ip"]
+        )
 
-        analyzed_ports = analyze_ports(ports)
+        analyzed_ports = analyze_ports(
+            ports
+        )
 
         show_scan_result(
             host,
             analyzed_ports
         )
-
 
 def show_menu():
     """

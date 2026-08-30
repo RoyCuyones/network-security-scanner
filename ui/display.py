@@ -40,15 +40,15 @@ def show_devices(hosts):
     table.add_column("Device Name")
     table.add_column("IP Address")
     table.add_column("MAC Address")
-    table.add_column("Vendor")
+    table.add_column("MAC Type")
 
     for index, host in enumerate(hosts, start=1):
         table.add_row(
             str(index),
-            host["hostname"],
             host["ip"],
             host["mac"],
-            host["vendor"]
+            host["mac_type"],
+            host["status"]
         )
 
     console.print(table)
@@ -61,13 +61,9 @@ def show_scan_result(host, analyzed_ports):
     """
 
     device_info = (
-        f'Device Name : {host["hostname"]}\n'
-        f'Category    : {host["category"]}\n'
-        f'Device Type : {host["device_type"]}\n'
         f'IP Address  : {host["ip"]}\n'
         f'MAC Address : {host["mac"]}\n'
         f'MAC Type    : {host["mac_type"]}\n'
-        f'Vendor      : {host["vendor"]}\n'
         f'Status      : {host["status"]}'
    )
     console.print(
