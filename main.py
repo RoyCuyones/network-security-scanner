@@ -3,7 +3,6 @@ import subprocess
 
 from rich.console import Console
 
-from enrichment.device_type import refine_device_classification
 from analysis.vulnerabilities import analyze_ports
 from discovery.network import detect_network
 from discovery.hosts import discover_hosts

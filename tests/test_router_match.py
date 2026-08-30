@@ -1,4 +1,4 @@
-from router.huawei_hg8145v5 import get_huawei_clients
+from integrations.providers.huawei_hg8145v5 import get_huawei_clients
 
 
 def normalize_mac(mac):

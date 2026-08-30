@@ -6,14 +6,12 @@ from discovery.hostname import resolve_hostname
 from discovery.ssdp import discover_ssdp_devices
 from discovery.arp import discover_arp_devices
 
-from enrichment.device_type import classify_device
 from enrichment.mac_info import (
     get_mac_type,
     normalize_vendor
 )
 
-from router.huawei_hg8145v5 import get_huawei_clients
-
+from integrations.providers.huawei_hg8145v5 import get_huawei_clients
 
 def normalize_mac_address(mac):
     """
@@ -70,39 +68,9 @@ def build_router_client_lookup(clients):
 
 
 def discover_hosts(subnet, interface=None, router_ip=None):
-    """
-    Discover live devices on the local subnet.
 
-    Information collected:
-        Device Name
-        Category
-        Device Type
-        IP Address
-        MAC Address
-        MAC Type
-        Vendor
-        Status
-
-    Device names may be enriched using:
-        Huawei DHCP/client table
-        Hostname resolver
-        SSDP/UPnP
-    """
-
-    # -----------------------------------------
-    # SSDP DISCOVERY
-    # -----------------------------------------
-
-    # Run SSDP discovery once for the entire
-    # local network instead of once per device.
     ssdp_devices = discover_ssdp_devices()
 
-    # -----------------------------------------
-    # ARP DISCOVERY
-    # -----------------------------------------
-
-    # Discover local IP/MAC/vendor information
-    # using ARP.
     arp_devices = discover_arp_devices(
         interface
     )
@@ -111,32 +79,6 @@ def discover_hosts(subnet, interface=None, router_ip=None):
     # HUAWEI DHCP CLIENT TABLE
     # -----------------------------------------
 
-    # Try to retrieve hostname/IP/MAC information
-    # from the Huawei router.
-    #
-    # Router integration is enrichment only.
-    # Discovery must still work if the router
-    # endpoint cannot be reached.
-
-
-    try:
-        router_clients = get_huawei_clients(
-            router_ip
-        )
-
-        router_clients_by_mac = (
-            build_router_client_lookup(
-                router_clients
-            )
-        )
-
-        router_clients_by_ip = {
-            client["ip"]: client
-            for client in router_clients
-            if client.get("ip")
-        }
-
-    except Exception:
     router_clients_by_mac = {}
     router_clients_by_ip = {}
 
@@ -347,40 +289,16 @@ def discover_hosts(subnet, interface=None, router_ip=None):
             hostname = ssdp_name
 
         # -----------------------------------------
-        # CATEGORY + DEVICE TYPE
-        # -----------------------------------------
-
-        classification = classify_device(
-            hostname=hostname,
-            vendor=vendor,
-            ssdp_info=ssdp_info
-        )
-
-        category = classification[
-            "category"
-        ]
-
-        device_type = classification[
-            "device_type"
-        ]
-
-        # -----------------------------------------
         # FINAL DEVICE RECORD
         # -----------------------------------------
 
         live_hosts.append({
             "hostname": hostname,
-            "category": category,
-            "device_type": device_type,
             "ip": ip_address,
             "mac": mac,
             "mac_type": mac_type,
             "vendor": vendor,
             "status": "Online",
-
-            # Internal enrichment data.
-            # This is not shown in normal output.
-            "_ssdp_info": ssdp_info
         })
 
     return live_hosts
@@ -397,7 +315,7 @@ if __name__ == "__main__":
 
     hosts = discover_hosts(
         network["subnet"],
-        network["interface"]
+        network["interface"],
 	network["gateway"]
     )
 
@@ -408,16 +326,6 @@ if __name__ == "__main__":
         print(
             "Device Name :",
             host["hostname"]
-        )
-
-        print(
-            "Category    :",
-            host["category"]
-        )
-
-        print(
-            "Device Type :",
-            host["device_type"]
         )
 
         print(
