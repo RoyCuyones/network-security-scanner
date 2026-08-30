@@ -10,7 +10,8 @@ from discovery.hosts import discover_hosts
 
 from integrations.dhcp_config import (
     load_dhcp_config,
-    save_dhcp_config
+    save_dhcp_config,
+    remove_dhcp_config
 )
 
 from scanning.nmap_scan import scan_host
@@ -40,12 +41,8 @@ def discover_network_devices(network):
     hosts = discover_hosts(
         network["subnet"],
         network["interface"],
-        dhcp_config["router_ip"]
-        if dhcp_config["enabled"]
-        else None,
+        dhcp_config["router_ip"],
         dhcp_config["provider"]
-        if dhcp_config["enabled"]
-        else None
     )
     console.print(
         f"\n[green]{len(hosts)} live device(s) discovered.[/green]"
@@ -294,81 +291,219 @@ def scan_all_devices(network):
             analyzed_ports
         )
 
-def configure_dhcp_integration():
+def setup_dhcp_integration(detected_gateway):
     """
-    Configure optional DHCP client-table integration.
+    Create a new DHCP integration configuration.
     """
-
-    current = load_dhcp_config()
 
     console.print(
-        "\n[bold]DHCP Integration Settings[/bold]"
+        "\n[bold]ROUTER IP CONFIGURATION[/bold]"
     )
 
     console.print(
-        f'Current status: '
-        f'{"Enabled" if current["enabled"] else "Disabled"}'
+        f"Detected Gateway : {detected_gateway}"
+    )
+
+    console.print(
+        "\n[1] Use Detected Gateway"
+    )
+    console.print(
+        "[2] Enter Different Router IP"
+    )
+    console.print(
+        "[3] Back"
     )
 
     choice = input(
-        "\nEnable DHCP integration? [y/N]: "
-    ).strip().lower()
+        "\nSelect an option: "
+    ).strip()
 
-    if choice != "y":
-        save_dhcp_config(
-            False,
-            None,
-            None
-        )
+    if choice == "1":
 
+        router_ip = detected_gateway
+
+    elif choice == "2":
+
+        router_ip = input(
+            "\nEnter Router IP address: "
+        ).strip()
+
+        try:
+            ip_object = ipaddress.ip_address(
+                router_ip
+            )
+
+        except ValueError:
+            console.print(
+                "[red]Invalid Router IP address.[/red]"
+            )
+            return
+
+        if ip_object.version != 4:
+            console.print(
+                "[red]Only IPv4 router addresses are supported.[/red]"
+            )
+            return
+
+    elif choice == "3":
+        return
+
+    else:
         console.print(
-            "[yellow]DHCP integration disabled.[/yellow]"
+            "[red]Invalid option.[/red]"
         )
         return
 
+    # -----------------------------------------
+    # ROUTER MODEL
+    # -----------------------------------------
+
     console.print(
-        "\nAvailable providers:"
+        "\n[bold]SELECT ROUTER MODEL USED BY YOUR ISP[/bold]"
     )
 
     console.print(
         "[1] Huawei HG8145V5"
     )
 
-    provider_choice = input(
-        "Select provider: "
+    console.print(
+        "[2] Back"
+    )
+
+    model_choice = input(
+        "\nSelect router model: "
     ).strip()
 
-    if provider_choice != "1":
+    if model_choice == "1":
+
+        provider = "huawei_hg8145v5"
+
+    elif model_choice == "2":
+        return
+
+    else:
         console.print(
-            "[red]Invalid provider selection.[/red]"
+            "[red]Invalid router model selection.[/red]"
         )
         return
 
-    router_ip = input(
-        "Enter router IP address: "
-    ).strip()
-
-    try:
-        ipaddress.ip_address(
-            router_ip
-        )
-
-    except ValueError:
-        console.print(
-            "[red]Invalid router IP address.[/red]"
-        )
-        return
+    # -----------------------------------------
+    # SAVE CONFIGURATION
+    # -----------------------------------------
 
     save_dhcp_config(
-        True,
-        "huawei_hg8145v5",
+        provider,
         router_ip
     )
 
     console.print(
-        "[green]DHCP integration configuration saved.[/green]"
+        "\n[green]"
+        "DHCP integration configured successfully."
+        "[/green]"
     )
 
+def configure_dhcp_integration(network):
+    """
+    Configure or remove DHCP integration settings.
+    """
+
+    current = load_dhcp_config()
+
+    provider = current.get("provider")
+    router_ip = current.get("router_ip")
+
+    is_configured = bool(
+        provider and router_ip
+    )
+
+    console.print(
+        "\n[bold]CONFIGURE DHCP INTEGRATION[/bold]"
+    )
+
+    console.print(
+        f'Status           : '
+        f'{"Configured" if is_configured else "Not Configured"}'
+    )
+
+    console.print(
+        f'Router IP        : '
+        f'{router_ip if router_ip else "Not configured"}'
+    )
+
+    if provider == "huawei_hg8145v5":
+        model_name = "Huawei HG8145V5"
+    else:
+        model_name = "Not configured"
+
+    console.print(
+        f'ISP Router Model : {model_name}'
+    )
+
+    if not is_configured:
+
+        console.print(
+            "\n[1] Add DHCP Integration"
+        )
+        console.print(
+            "[2] Back to Main Menu"
+        )
+
+        choice = input(
+            "\nSelect an option: "
+        ).strip()
+
+        if choice == "1":
+            setup_dhcp_integration(
+                network["gateway"]
+            )
+
+        elif choice == "2":
+            return
+
+        else:
+            console.print(
+                "[red]Invalid option.[/red]"
+            )
+
+        return
+
+    console.print(
+        "\n[1] Remove DHCP Integration"
+    )
+    console.print(
+        "[2] Reset Configuration"
+    )
+    console.print(
+        "[3] Back to Main Menu"
+    )
+
+    choice = input(
+        "\nSelect an option: "
+    ).strip()
+
+    if choice == "1":
+
+        remove_dhcp_config()
+
+        console.print(
+            "[green]DHCP integration removed.[/green]"
+        )
+
+    elif choice == "2":
+
+        remove_dhcp_config()
+
+        setup_dhcp_integration(
+            network["gateway"]
+        )
+
+    elif choice == "3":
+        return
+
+    else:
+        console.print(
+            "[red]Invalid option.[/red]"
+        )
 
 def show_menu():
     """
@@ -424,7 +559,7 @@ def main():
 
         elif choice == "5":
 
-            configure_dhcp_integration()
+            configure_dhcp_integration(network)
 
         elif choice == "6":
 

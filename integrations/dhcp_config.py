@@ -9,13 +9,12 @@ def load_dhcp_config():
     """
     Load DHCP integration settings.
 
-    If no configuration exists, return
-    a disabled default configuration.
+    If no configuration exists or the file is invalid,
+    return an unconfigured state.
     """
 
     if not os.path.exists(CONFIG_FILE):
         return {
-            "enabled": False,
             "provider": None,
             "router_ip": None
         }
@@ -26,28 +25,25 @@ def load_dhcp_config():
 
     except (OSError, json.JSONDecodeError):
         return {
-            "enabled": False,
             "provider": None,
             "router_ip": None
         }
 
     return {
-        "enabled": config.get("enabled", False),
         "provider": config.get("provider"),
         "router_ip": config.get("router_ip")
     }
 
+
 def save_dhcp_config(
-    enabled,
-    provider=None,
-    router_ip=None
+    provider,
+    router_ip
 ):
     """
     Save DHCP integration settings locally.
     """
 
     config = {
-        "enabled": enabled,
         "provider": provider,
         "router_ip": router_ip
     }
@@ -58,3 +54,12 @@ def save_dhcp_config(
             file,
             indent=4
         )
+
+
+def remove_dhcp_config():
+    """
+    Remove the saved DHCP integration configuration.
+    """
+
+    if os.path.exists(CONFIG_FILE):
+        os.remove(CONFIG_FILE)
