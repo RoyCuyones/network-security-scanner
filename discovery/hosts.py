@@ -11,7 +11,7 @@ from enrichment.mac_info import (
     normalize_vendor
 )
 
-from integrations.providers.huawei_hg8145v5 import get_huawei_clients
+from integrations.dhcp_clients import get_dhcp_clients
 
 def normalize_mac_address(mac):
     """
@@ -67,7 +67,12 @@ def build_router_client_lookup(clients):
     return lookup
 
 
-def discover_hosts(subnet, interface=None, router_ip=None):
+def discover_hosts(
+    subnet, 
+    interface=None,
+    router_ip=None,
+    dhcp_provider=None
+):
 
     ssdp_devices = discover_ssdp_devices()
 
@@ -84,7 +89,8 @@ def discover_hosts(subnet, interface=None, router_ip=None):
 
     if router_ip:
         try:
-            router_clients = get_huawei_clients(
+            router_clients = get_dhcp_clients(
+		dhcp_provider,
                 router_ip
             )
 

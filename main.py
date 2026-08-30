@@ -4,9 +4,17 @@ import subprocess
 from rich.console import Console
 
 from analysis.vulnerabilities import analyze_ports
+
 from discovery.network import detect_network
 from discovery.hosts import discover_hosts
+
+from integrations.dhcp_config import (
+    load_dhcp_config,
+    save_dhcp_config
+)
+
 from scanning.nmap_scan import scan_host
+
 from ui.display import (
     show_network_info,
     show_devices,
@@ -27,8 +35,18 @@ def discover_network_devices(network):
         f'{network["subnet"]}...[/bold]'
     )
 
-    hosts = discover_hosts(network["subnet"])
+    dhcp_config = load_dhcp_config()
 
+    hosts = discover_hosts(
+        network["subnet"],
+        network["interface"],
+        dhcp_config["router_ip"]
+        if dhcp_config["enabled"]
+        else None,
+        dhcp_config["provider"]
+        if dhcp_config["enabled"]
+        else None
+    )
     console.print(
         f"\n[green]{len(hosts)} live device(s) discovered.[/green]"
     )
@@ -276,6 +294,81 @@ def scan_all_devices(network):
             analyzed_ports
         )
 
+def configure_dhcp_integration():
+    """
+    Configure optional DHCP client-table integration.
+    """
+
+    current = load_dhcp_config()
+
+    console.print(
+        "\n[bold]DHCP Integration Settings[/bold]"
+    )
+
+    console.print(
+        f'Current status: '
+        f'{"Enabled" if current["enabled"] else "Disabled"}'
+    )
+
+    choice = input(
+        "\nEnable DHCP integration? [y/N]: "
+    ).strip().lower()
+
+    if choice != "y":
+        save_dhcp_config(
+            False,
+            None,
+            None
+        )
+
+        console.print(
+            "[yellow]DHCP integration disabled.[/yellow]"
+        )
+        return
+
+    console.print(
+        "\nAvailable providers:"
+    )
+
+    console.print(
+        "[1] Huawei HG8145V5"
+    )
+
+    provider_choice = input(
+        "Select provider: "
+    ).strip()
+
+    if provider_choice != "1":
+        console.print(
+            "[red]Invalid provider selection.[/red]"
+        )
+        return
+
+    router_ip = input(
+        "Enter router IP address: "
+    ).strip()
+
+    try:
+        ipaddress.ip_address(
+            router_ip
+        )
+
+    except ValueError:
+        console.print(
+            "[red]Invalid router IP address.[/red]"
+        )
+        return
+
+    save_dhcp_config(
+        True,
+        "huawei_hg8145v5",
+        router_ip
+    )
+
+    console.print(
+        "[green]DHCP integration configuration saved.[/green]"
+    )
+
 
 def show_menu():
     """
@@ -292,7 +385,8 @@ def show_menu():
     console.print("[2] Scan All Devices")
     console.print("[3] Scan Specific Device")
     console.print("[4] Network Information")
-    console.print("[5] Exit")
+    console.print("[5] DHCP Integration Settings")
+    console.print("[6] Exit")
 
 
 def main():
@@ -329,6 +423,10 @@ def main():
             show_network_info(network)
 
         elif choice == "5":
+
+            configure_dhcp_integration()
+
+        elif choice == "6":
 
             console.print(
                 "\n[cyan]Exiting scanner.[/cyan]"
