@@ -55,8 +55,9 @@ def scan_specific_device(network):
     """
     Scan one user-supplied IPv4 address at a time.
 
-    After each scan, the user can choose whether
-    to scan another IP or return to the main menu.
+    The target is validated, checked against the
+    current subnet, enriched when possible, and then
+    scanned for open ports and security concerns.
     """
 
     while True:
@@ -153,9 +154,12 @@ def scan_specific_device(network):
         )
 
         if not host_is_up:
+
             console.print(
-                "[yellow]Host did not respond to "
-                "normal discovery probes.[/yellow]"
+                "[yellow]"
+                "Host did not respond to normal "
+                "discovery probes."
+                "[/yellow]"
             )
 
             choice = input(
@@ -174,19 +178,41 @@ def scan_specific_device(network):
                 continue
 
         # -----------------------------------------
-        # 4. BUILD HOST RECORD
+        # 4. ENRICH TARGET INFORMATION
         # -----------------------------------------
 
-        host = {
-            "ip": target_ip,
-            "mac": "Unknown",
-            "mac_type": "Unknown",
-            "status": (
-                "Online"
-                if host_is_up
-                else "Unconfirmed"
-            )
-        }
+        dhcp_config = load_dhcp_config()
+
+        discovered_hosts = discover_hosts(
+            network["subnet"],
+            network["interface"],
+            dhcp_config.get("router_ip"),
+            dhcp_config.get("provider")
+        )
+
+        host = None
+
+        for discovered_host in discovered_hosts:
+
+            if discovered_host["ip"] == target_ip:
+                host = discovered_host
+                break
+
+        # If enrichment did not find the target,
+        # create a minimal host record.
+        if host is None:
+
+            host = {
+                "hostname": "Unknown",
+                "ip": target_ip,
+                "mac": "Unknown",
+                "mac_type": "Unknown",
+                "status": (
+                    "Online"
+                    if host_is_up
+                    else "Unconfirmed"
+                )
+            }
 
         # -----------------------------------------
         # 5. SCAN TARGET
@@ -220,14 +246,13 @@ def scan_specific_device(network):
         if again != "y":
             return
 
-
 def scan_all_devices(network):
     """
     Perform a live network security scan.
 
     Devices are discovered and scanned once.
     After each scan round, the network is checked
-    again for newly connected devices.
+    again for devices coming online or going offline.
     """
 
     scanned_ips = set()
@@ -244,6 +269,11 @@ def scan_all_devices(network):
     if not current_hosts:
         return
 
+    previous_live_ips = {
+        host["ip"]
+        for host in current_hosts
+    }
+
     console.print(
         f"\n[bold]{len(current_hosts)} live device(s) "
         "available for scanning.[/bold]"
@@ -259,8 +289,8 @@ def scan_all_devices(network):
 
             ip_address = host["ip"]
 
-            # Never scan the same IP twice
-            # during this scan session.
+            # Do not thoroughly scan the same IP
+            # more than once during this session.
             if ip_address in scanned_ips:
                 continue
 
@@ -272,8 +302,6 @@ def scan_all_devices(network):
                 ip_address
             )
 
-            # Mark it scanned even when no
-            # open ports were detected.
             scanned_ips.add(
                 ip_address
             )
@@ -285,20 +313,43 @@ def scan_all_devices(network):
                 ports
             )
 
+            normalized_host = {
+                "hostname": host.get(
+                    "hostname",
+                    "Unknown"
+                ),
+                "hostname_source": host.get(
+                    "hostname_source"
+                ),
+                "ip": ip_address,
+                "mac": host.get(
+                    "mac",
+                    "Unknown"
+                ),
+                "mac_type": host.get(
+                    "mac_type",
+                    "Unknown"
+                ),
+                "status": host.get(
+                    "status",
+                    "Online"
+                )
+            }
+
             results_with_open_ports.append(
                 {
-                    "host": host,
+                    "host": normalized_host,
                     "analyzed_ports": analyzed_ports
                 }
             )
 
         # -----------------------------------------
-        # LOOK FOR NEW DEVICES
+        # CHECK NETWORK CHANGES
         # -----------------------------------------
 
         console.print(
             "\n[bold]"
-            "Checking for newly connected devices..."
+            "Checking for network changes..."
             "[/bold]"
         )
 
@@ -306,25 +357,62 @@ def scan_all_devices(network):
             network
         )
 
+        current_live_ips = {
+            host["ip"]
+            for host in refreshed_hosts
+        }
+
+        newly_online_ips = (
+            current_live_ips
+            - previous_live_ips
+        )
+
+        went_offline_ips = (
+            previous_live_ips
+            - current_live_ips
+        )
+
+        console.print(
+            f"\nCurrent Online Devices : "
+            f"{len(current_live_ips)}"
+        )
+
+        console.print(
+            f"Newly Online Devices   : "
+            f"{len(newly_online_ips)}"
+        )
+
+        console.print(
+            f"Devices Went Offline   : "
+            f"{len(went_offline_ips)}"
+        )
+
+        # Find devices that have not yet received
+        # a thorough scan during this session.
         new_hosts = [
             host
             for host in refreshed_hosts
             if host["ip"] not in scanned_ips
         ]
 
+        # Save this discovery snapshot so the
+        # next cycle can detect network changes.
+        previous_live_ips = current_live_ips
+
         if not new_hosts:
 
             console.print(
-                "[green]"
-                "No newly connected devices found."
+                "\n[green]"
+                "No unscanned online devices found."
                 "[/green]"
             )
 
             break
 
         console.print(
-            f"[yellow]{len(new_hosts)} new device(s) "
-            "detected. Continuing scan...[/yellow]"
+            f"\n[yellow]{len(new_hosts)} "
+            "unscanned device(s) detected. "
+            "Continuing scan...[/yellow]"
         )
 
         current_hosts = new_hosts
@@ -334,8 +422,8 @@ def scan_all_devices(network):
     # -----------------------------------------
 
     console.print(
-        f"\n[bold]{len(scanned_ips)} total device(s) "
-        "scanned.[/bold]"
+        f"\n[bold]{len(scanned_ips)} unique device(s) "
+        "scanned during this session.[/bold]"
     )
 
     console.print(

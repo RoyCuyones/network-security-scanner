@@ -280,18 +280,15 @@ def discover_hosts(
         # DEVICE NAME
         # -----------------------------------------
 
-        hostname = resolve_hostname(
-            ip_address
-        )
+        hostname = "Unknown"
+        hostname_source = None
 
-        # Prefer the hostname from the router
-        # DHCP table when one is available.
+        # 1. Prefer the hostname from the router
+        # DHCP table when available.
         if router_client:
 
-            router_hostname = (
-                router_client.get(
-                    "hostname"
-                )
+            router_hostname = router_client.get(
+                "hostname"
             )
 
             if router_hostname:
@@ -302,13 +299,33 @@ def discover_hosts(
 
                 if router_hostname:
                     hostname = router_hostname
-        # Fall back to SSDP if no hostname
-        # could be resolved.
+                    hostname_source = "dhcp"
+
+        # 2. If DHCP did not provide a hostname,
+        # try local hostname-resolution methods.
+        if hostname == "Unknown":
+
+            hostname_result = resolve_hostname(
+                ip_address
+            )
+
+            hostname = hostname_result.get(
+                "hostname",
+                "Unknown"
+            )
+
+            hostname_source = hostname_result.get(
+                "source"
+            )
+
+        # 3. Fall back to SSDP friendly name.
         if (
             hostname == "Unknown"
             and ssdp_name
         ):
+
             hostname = ssdp_name
+            hostname_source = "ssdp"
 
         # -----------------------------------------
         # FINAL DEVICE RECORD
@@ -316,11 +333,8 @@ def discover_hosts(
 
         live_hosts.append({
             "hostname": hostname,
+            "hostname_source": hostname_source,
             "ip": ip_address,
-            "mac": mac,
-            "mac_type": mac_type,
-            "vendor": vendor,
-            "status": "Online",
         })
 
     return live_hosts

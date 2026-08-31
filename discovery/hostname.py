@@ -239,7 +239,8 @@ def collect_hostname_candidates(ip_address):
 
 def select_best_hostname(candidates):
     """
-    Choose the best available device name.
+    Choose the best available device name
+    and return both the hostname and its source.
 
     Current priority:
         mDNS
@@ -262,14 +263,21 @@ def select_best_hostname(candidates):
         )
 
         if hostname:
-            return hostname
+            return {
+                "hostname": hostname,
+                "source": source
+            }
 
-    return "Unknown"
+    return {
+        "hostname": "Unknown",
+        "source": None
+    }
 
 
 def resolve_hostname(ip_address):
     """
-    Public function used by the rest of the project.
+    Resolve the best available hostname
+    and include the discovery source.
     """
 
     candidates = collect_hostname_candidates(
@@ -279,7 +287,6 @@ def resolve_hostname(ip_address):
     return select_best_hostname(
         candidates
     )
-
 
 if __name__ == "__main__":
 
