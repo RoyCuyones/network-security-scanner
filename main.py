@@ -221,15 +221,15 @@ def scan_specific_device(network):
             return
 
 
-def scan_all_devices(network, host=None):
+def scan_all_devices(network, hosts=None):
     """
-    Discover all live devices, scan each one,
-    and display results only for devices that
-    have open ports in the top 100 TCP ports.
-    """
-    
-    if hosts is None:
+    Scan all discovered devices.
 
+    If a previous discovery result is provided,
+    reuse it. Otherwise, perform a new discovery.
+    """
+
+    if hosts is None:
         hosts = discover_network_devices(
             network
         )
@@ -292,6 +292,7 @@ def scan_all_devices(network, host=None):
             host,
             analyzed_ports
         )
+
 
 def setup_dhcp_integration(detected_gateway):
     """
