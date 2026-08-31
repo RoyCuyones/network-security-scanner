@@ -221,63 +221,137 @@ def scan_specific_device(network):
             return
 
 
-def scan_all_devices(network, hosts=None):
+def scan_all_devices(network):
     """
-    Scan all discovered devices.
+    Perform a live network security scan.
 
-    If a previous discovery result is provided,
-    reuse it. Otherwise, perform a new discovery.
+    Devices are discovered and scanned once.
+    After each scan round, the network is checked
+    again for newly connected devices.
     """
 
-    if hosts is None:
-        hosts = discover_network_devices(
-            network
-        )
+    scanned_ips = set()
+    results_with_open_ports = []
 
-    if not hosts:
+    # -----------------------------------------
+    # INITIAL DISCOVERY
+    # -----------------------------------------
+
+    current_hosts = discover_network_devices(
+        network
+    )
+
+    if not current_hosts:
         return
 
     console.print(
-        f"\n[bold]{len(hosts)} live device(s) "
+        f"\n[bold]{len(current_hosts)} live device(s) "
         "available for scanning.[/bold]"
     )
 
+    # -----------------------------------------
+    # LIVE SCAN LOOP
+    # -----------------------------------------
+
+    while True:
+
+        for host in current_hosts:
+
+            ip_address = host["ip"]
+
+            # Never scan the same IP twice
+            # during this scan session.
+            if ip_address in scanned_ips:
+                continue
+
+            console.print(
+                f"\n[bold]Scanning {ip_address}...[/bold]"
+            )
+
+            ports = scan_host(
+                ip_address
+            )
+
+            # Mark it scanned even when no
+            # open ports were detected.
+            scanned_ips.add(
+                ip_address
+            )
+
+            if not ports:
+                continue
+
+            analyzed_ports = analyze_ports(
+                ports
+            )
+
+            results_with_open_ports.append(
+                {
+                    "host": host,
+                    "analyzed_ports": analyzed_ports
+                }
+            )
+
+        # -----------------------------------------
+        # LOOK FOR NEW DEVICES
+        # -----------------------------------------
+
+        console.print(
+            "\n[bold]"
+            "Checking for newly connected devices..."
+            "[/bold]"
+        )
+
+        refreshed_hosts = discover_network_devices(
+            network
+        )
+
+        new_hosts = [
+            host
+            for host in refreshed_hosts
+            if host["ip"] not in scanned_ips
+        ]
+
+        if not new_hosts:
+
+            console.print(
+                "[green]"
+                "No newly connected devices found."
+                "[/green]"
+            )
+
+            break
+
+        console.print(
+            f"[yellow]{len(new_hosts)} new device(s) "
+            "detected. Continuing scan...[/yellow]"
+        )
+
+        current_hosts = new_hosts
+
+    # -----------------------------------------
+    # FINAL RESULTS
+    # -----------------------------------------
+
     console.print(
-        "\n[bold]Scanning all devices...[/bold]"
+        f"\n[bold]{len(scanned_ips)} total device(s) "
+        "scanned.[/bold]"
     )
 
-    results_with_open_ports = []
-
-    for host in hosts:
-
-        ports = scan_host(
-            host["ip"]
-        )
-
-        if not ports:
-            continue
-
-        analyzed_ports = analyze_ports(
-            ports
-        )
-
-        results_with_open_ports.append(
-            {
-                "host": host,
-                "analyzed_ports": analyzed_ports
-            }
-        )
-
     console.print(
-        f"\n[bold]{len(results_with_open_ports)} "
+        f"[bold]{len(results_with_open_ports)} "
         "device(s) with open ports found.[/bold]"
     )
 
     if not results_with_open_ports:
+
         console.print(
-            "[green]No open ports were found "
-            "on any discovered device.[/green]"
+            "[green]"
+            "No open ports were found in the "
+            "top 100 TCP ports."
+            "[/green]"
         )
+
         return
 
     for result in results_with_open_ports:
@@ -292,7 +366,6 @@ def scan_all_devices(network, hosts=None):
             host,
             analyzed_ports
         )
-
 
 def setup_dhcp_integration(detected_gateway):
     """
@@ -544,39 +617,54 @@ def main():
 
         if choice == "1":
 
-            hosts = discover_network_devices(network)
+            hosts = discover_network_devices(
+                network
+            )
 
-            show_devices(hosts)
+            show_devices(
+                hosts
+            )
 
         elif choice == "2":
 
-            scan_all_devices(network)
+            scan_all_devices(
+                network
+            )
 
         elif choice == "3":
 
-            scan_specific_device(network)
+            scan_specific_device(
+                network
+            )
 
         elif choice == "4":
 
-            show_network_info(network)
+            show_network_info(
+                network
+            )
 
         elif choice == "5":
 
-            configure_dhcp_integration(network)
+            configure_dhcp_integration(
+                network
+            )
 
         elif choice == "6":
 
             console.print(
                 "\n[cyan]Exiting scanner.[/cyan]"
             )
+
             break
 
         else:
 
             console.print(
-                "\n[red]Invalid option. Please choose 1 to 6.[/red]"
+                "\n[red]"
+                "Invalid option. "
+                "Please choose 1 to 6."
+                "[/red]"
             )
-
 
 if __name__ == "__main__":
     main()
