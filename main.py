@@ -1,6 +1,13 @@
 import ipaddress
 import subprocess
 
+from fingerprinting.storage import save_fingerprint
+from fingerprinting.collector import build_device_fingerprint
+from fingerprinting.normalizer import (
+    normalize_fingerprint,
+    generate_fingerprint_hash
+)
+
 from rich.console import Console
 
 from analysis.vulnerabilities import analyze_ports
@@ -56,8 +63,9 @@ def scan_specific_device(network):
     Scan one user-supplied IPv4 address at a time.
 
     The target is validated, checked against the
-    current subnet, enriched when possible, and then
-    scanned for open ports and security concerns.
+    current subnet, enriched when possible, scanned
+    for open ports, analyzed for concerns, and then
+    converted into a normalized device fingerprint.
     """
 
     while True:
@@ -113,6 +121,7 @@ def scan_specific_device(network):
         )
 
         if ip_object not in current_network:
+
             console.print(
                 f"[yellow]{target_ip} is not inside "
                 f"the current subnet "
@@ -198,15 +207,18 @@ def scan_specific_device(network):
                 host = discovered_host
                 break
 
-        # If enrichment did not find the target,
-        # create a minimal host record.
+        # If discovery/enrichment did not return
+        # the target, create a safe minimal record.
         if host is None:
 
             host = {
                 "hostname": "Unknown",
+                "hostname_source": None,
                 "ip": target_ip,
                 "mac": "Unknown",
+                "mac_source": None,
                 "mac_type": "Unknown",
+                "vendor": "Unknown",
                 "status": (
                     "Online"
                     if host_is_up
@@ -230,13 +242,79 @@ def scan_specific_device(network):
             ports
         )
 
+        # -----------------------------------------
+        # 6. BUILD DEVICE FINGERPRINT
+        # -----------------------------------------
+
+        fingerprint = build_device_fingerprint(
+            host,
+            ports,
+            host.get(
+                "ssdp",
+                {}
+            )
+        )
+
+        normalized_fingerprint = normalize_fingerprint(
+            fingerprint
+        )
+
+        fingerprint_hash = generate_fingerprint_hash(
+            normalized_fingerprint
+        )
+
+        storage_result = save_fingerprint(
+            fingerprint_hash,
+            normalized_fingerprint
+        )
+
+        console.print(
+            "\n[bold cyan]FINGERPRINT STORAGE[/bold cyan]"
+        )
+
+        console.print(
+            storage_result
+        )
+
+        console.print(
+            "\n[bold cyan]NORMALIZED FINGERPRINT[/bold cyan]"
+        )
+
+        console.print(
+            normalized_fingerprint
+        )
+
+        console.print(
+            "\n[bold cyan]FINGERPRINT HASH[/bold cyan]"
+        )
+
+        console.print(
+            fingerprint_hash
+        )
+
+        console.print(
+            "\n[bold cyan]DEVICE FINGERPRINT[/bold cyan]"
+        )
+
+        console.print(
+            fingerprint
+        )
+
+        # Fingerprint is currently collected only
+        # in memory. It is not yet saved permanently.
+        _ = fingerprint
+
+        # -----------------------------------------
+        # 7. DISPLAY SECURITY ASSESSMENT
+        # -----------------------------------------
+
         show_scan_result(
             host,
             analyzed_ports
         )
 
         # -----------------------------------------
-        # 6. ASK WHETHER TO SCAN AGAIN
+        # 8. ASK WHETHER TO SCAN AGAIN
         # -----------------------------------------
 
         again = input(
@@ -246,6 +324,7 @@ def scan_specific_device(network):
         if again != "y":
             return
 
+
 def scan_all_devices(network):
     """
     Perform a live network security scan.
@@ -253,6 +332,10 @@ def scan_all_devices(network):
     Devices are discovered and scanned once.
     After each scan round, the network is checked
     again for devices coming online or going offline.
+
+    Each scanned device also produces a normalized
+    fingerprint that is deduplicated and stored
+    locally in SQLite.
     """
 
     scanned_ips = set()
@@ -289,8 +372,6 @@ def scan_all_devices(network):
 
             ip_address = host["ip"]
 
-            # Do not thoroughly scan the same IP
-            # more than once during this session.
             if ip_address in scanned_ips:
                 continue
 
@@ -306,8 +387,67 @@ def scan_all_devices(network):
                 ip_address
             )
 
+            # -----------------------------------------
+            # BUILD RAW FINGERPRINT
+            # -----------------------------------------
+
+            fingerprint = build_device_fingerprint(
+                host,
+                ports,
+                host.get(
+                    "ssdp",
+                    {}
+                )
+            )
+
+            # -----------------------------------------
+            # NORMALIZE FINGERPRINT
+            # -----------------------------------------
+
+            normalized_fingerprint = (
+                normalize_fingerprint(
+                    fingerprint
+                )
+            )
+
+            # -----------------------------------------
+            # GENERATE DEDUPLICATION HASH
+            # -----------------------------------------
+
+            fingerprint_hash = (
+                generate_fingerprint_hash(
+                    normalized_fingerprint
+                )
+            )
+
+            # -----------------------------------------
+            # SAVE / UPDATE FINGERPRINT
+            # -----------------------------------------
+
+            storage_result = save_fingerprint(
+                fingerprint_hash,
+                normalized_fingerprint
+            )
+
+            console.print(
+                "[dim]"
+                f"Fingerprint storage: "
+                f"{storage_result['status']} "
+                f"(observations: "
+                f"{storage_result['observation_count']})"
+                "[/dim]"
+            )
+
+            # -----------------------------------------
+            # NO OPEN PORTS
+            # -----------------------------------------
+
             if not ports:
                 continue
+
+            # -----------------------------------------
+            # SECURITY ANALYSIS
+            # -----------------------------------------
 
             analyzed_ports = analyze_ports(
                 ports
@@ -318,18 +458,32 @@ def scan_all_devices(network):
                     "hostname",
                     "Unknown"
                 ),
+
                 "hostname_source": host.get(
                     "hostname_source"
                 ),
+
                 "ip": ip_address,
+
                 "mac": host.get(
                     "mac",
                     "Unknown"
                 ),
+
+                "mac_source": host.get(
+                    "mac_source"
+                ),
+
                 "mac_type": host.get(
                     "mac_type",
                     "Unknown"
                 ),
+
+                "vendor": host.get(
+                    "vendor",
+                    "Unknown"
+                ),
+
                 "status": host.get(
                     "status",
                     "Online"
@@ -339,7 +493,9 @@ def scan_all_devices(network):
             results_with_open_ports.append(
                 {
                     "host": normalized_host,
-                    "analyzed_ports": analyzed_ports
+                    "analyzed_ports": analyzed_ports,
+                    "fingerprint": fingerprint,
+                    "fingerprint_hash": fingerprint_hash
                 }
             )
 
@@ -387,16 +543,12 @@ def scan_all_devices(network):
             f"{len(went_offline_ips)}"
         )
 
-        # Find devices that have not yet received
-        # a thorough scan during this session.
         new_hosts = [
             host
             for host in refreshed_hosts
             if host["ip"] not in scanned_ips
         ]
 
-        # Save this discovery snapshot so the
-        # next cycle can detect network changes.
         previous_live_ips = current_live_ips
 
         if not new_hosts:
@@ -454,6 +606,7 @@ def scan_all_devices(network):
             host,
             analyzed_ports
         )
+
 
 def setup_dhcp_integration(detected_gateway):
     """

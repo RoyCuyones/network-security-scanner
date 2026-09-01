@@ -1,6 +1,7 @@
 import subprocess
 import xml.etree.ElementTree as ET
 
+from discovery.mdns_services import discover_mdns_services
 from discovery.network import detect_network
 from discovery.hostname import resolve_hostname
 from discovery.ssdp import discover_ssdp_devices
@@ -94,6 +95,7 @@ def discover_hosts(
         mac_source
         mac_type
         vendor
+        ssdp
         status
     """
 
@@ -102,6 +104,7 @@ def discover_hosts(
     # -----------------------------------------
 
     ssdp_devices = discover_ssdp_devices()
+    mdns_services = discover_mdns_services()
 
     # -----------------------------------------
     # ARP DISCOVERY
@@ -392,6 +395,11 @@ def discover_hosts(
             "mac_source": mac_source,
             "mac_type": mac_type,
             "vendor": vendor,
+            "ssdp": ssdp_info,
+            "mdns_services": mdns_services.get(
+                ip_address,
+                []
+            ),
             "status": "Online"
         })
 
