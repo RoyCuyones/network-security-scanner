@@ -68,29 +68,61 @@ def build_router_client_lookup(clients):
 
 
 def discover_hosts(
-    subnet, 
+    subnet,
     interface=None,
     router_ip=None,
     dhcp_provider=None
 ):
+    """
+    Discover live devices on the local network.
+
+    Information may be enriched using:
+        Nmap
+        ARP
+        DHCP client table
+        mDNS
+        NetBIOS
+        SMB
+        Reverse DNS
+        SSDP
+
+    Each returned host contains:
+        hostname
+        hostname_source
+        ip
+        mac
+        mac_source
+        mac_type
+        vendor
+        status
+    """
+
+    # -----------------------------------------
+    # SSDP DISCOVERY
+    # -----------------------------------------
 
     ssdp_devices = discover_ssdp_devices()
+
+    # -----------------------------------------
+    # ARP DISCOVERY
+    # -----------------------------------------
 
     arp_devices = discover_arp_devices(
         interface
     )
 
     # -----------------------------------------
-    # HUAWEI DHCP CLIENT TABLE
+    # DHCP CLIENT TABLE
     # -----------------------------------------
 
     router_clients_by_mac = {}
     router_clients_by_ip = {}
 
-    if router_ip:
+    if router_ip and dhcp_provider:
+
         try:
             router_clients = get_dhcp_clients(
-		dhcp_provider,
+                dhcp_provider,
                 router_ip
             )
 
@@ -161,6 +193,9 @@ def discover_hosts(
             "addr"
         )
 
+        if not ip_address:
+            continue
+
         # -----------------------------------------
         # SSDP INFORMATION
         # -----------------------------------------
@@ -179,9 +214,10 @@ def discover_hosts(
         # -----------------------------------------
 
         mac = "Unknown"
+        mac_source = None
         vendor = "Unknown"
 
-        # First try the MAC returned by Nmap.
+        # First try Nmap.
         mac_address = host.find(
             "address[@addrtype='mac']"
         )
@@ -198,8 +234,13 @@ def discover_hosts(
                 "Unknown"
             )
 
-        # Then try ARP information when Nmap
-        # did not provide a MAC/vendor.
+            if mac != "Unknown":
+                mac_source = "nmap"
+
+        # -----------------------------------------
+        # ARP FALLBACK
+        # -----------------------------------------
+
         arp_info = arp_devices.get(
             ip_address
         )
@@ -207,12 +248,18 @@ def discover_hosts(
         if arp_info:
 
             if mac == "Unknown":
-                mac = arp_info.get(
+
+                arp_mac = arp_info.get(
                     "mac",
                     "Unknown"
                 )
 
+                if arp_mac != "Unknown":
+                    mac = arp_mac
+                    mac_source = "arp"
+
             if vendor == "Unknown":
+
                 vendor = arp_info.get(
                     "vendor",
                     "Unknown"
@@ -224,31 +271,32 @@ def discover_hosts(
 
         router_client = None
 
-        # First try matching the existing MAC
-        # against the router DHCP table.
         normalized_mac = normalize_mac_address(
             mac
         )
 
+        # First try matching by MAC.
         if normalized_mac:
+
             router_client = (
                 router_clients_by_mac.get(
                     normalized_mac
                 )
             )
 
-        # If no MAC match is available, fall
-        # back to matching by IP address.
+        # If MAC matching fails, use IP.
         if router_client is None:
+
             router_client = (
                 router_clients_by_ip.get(
                     ip_address
                 )
             )
 
-        # If Nmap and ARP could not provide a
-        # MAC address, use the MAC recorded by
-        # the router DHCP client table.
+        # -----------------------------------------
+        # DHCP MAC FALLBACK
+        # -----------------------------------------
+
         if (
             mac == "Unknown"
             and router_client
@@ -259,14 +307,14 @@ def discover_hosts(
             )
 
             if router_mac:
+
                 mac = router_mac.upper()
+                mac_source = "dhcp"
 
         # -----------------------------------------
         # MAC TYPE
         # -----------------------------------------
 
-        # Determine MAC type only AFTER all
-        # available MAC sources have been tried.
         mac_type = get_mac_type(
             mac
         )
@@ -283,12 +331,13 @@ def discover_hosts(
         hostname = "Unknown"
         hostname_source = None
 
-        # 1. Prefer the hostname from the router
-        # DHCP table when available.
+        # 1. DHCP hostname has highest priority.
         if router_client:
 
-            router_hostname = router_client.get(
-                "hostname"
+            router_hostname = (
+                router_client.get(
+                    "hostname"
+                )
             )
 
             if router_hostname:
@@ -298,11 +347,12 @@ def discover_hosts(
                 )
 
                 if router_hostname:
+
                     hostname = router_hostname
                     hostname_source = "dhcp"
 
-        # 2. If DHCP did not provide a hostname,
-        # try local hostname-resolution methods.
+        # 2. Try mDNS / NetBIOS / SMB /
+        # reverse DNS if DHCP had no name.
         if hostname == "Unknown":
 
             hostname_result = resolve_hostname(
@@ -314,11 +364,14 @@ def discover_hosts(
                 "Unknown"
             )
 
-            hostname_source = hostname_result.get(
-                "source"
+            hostname_source = (
+                hostname_result.get(
+                    "source"
+                )
             )
 
-        # 3. Fall back to SSDP friendly name.
+        # 3. SSDP friendly name is the final
+        # hostname fallback.
         if (
             hostname == "Unknown"
             and ssdp_name
@@ -335,6 +388,11 @@ def discover_hosts(
             "hostname": hostname,
             "hostname_source": hostname_source,
             "ip": ip_address,
+            "mac": mac,
+            "mac_source": mac_source,
+            "mac_type": mac_type,
+            "vendor": vendor,
+            "status": "Online"
         })
 
     return live_hosts

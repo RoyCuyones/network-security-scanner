@@ -72,13 +72,24 @@ def show_scan_result(host, analyzed_ports):
         hostname_source = "None"
 
 
+    mac_source = host.get(
+        "mac_source"
+    )
+
+    if mac_source:
+        mac_source = mac_source.upper()
+    else:
+        mac_source = "None"
+
+
     device_info = (
         f'Hostname        : {host.get("hostname", "Unknown")}\n'
         f'Hostname Source : {hostname_source}\n'
         f'IP Address      : {host["ip"]}\n'
-        f'MAC Address     : {host["mac"]}\n'
-        f'MAC Type        : {host["mac_type"]}\n'
-        f'Status          : {host["status"]}'
+        f'MAC Address     : {host.get("mac", "Unknown")}\n'
+        f'MAC Source      : {mac_source}\n'
+        f'MAC Type        : {host.get("mac_type", "Unknown")}\n'
+        f'Status          : {host.get("status", "Unknown")}'
     )
 
     console.print(
